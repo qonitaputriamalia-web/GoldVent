@@ -226,93 +226,88 @@ app.delete('/api/equipments/:id', async (c) => {
 })
 
 // ==========================================
-// ENDPOINT AI CHATBOT (GEMINI POWERED + ACTION AGENT)
+// ENDPOINT AI CHATBOT (MEMORY + CATEGORY FIX)
 // ==========================================
 app.post('/api/chat', async (c) => {
   try {
-    const { message } = await c.req.json()
-
-    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY as string)
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" })
-
-    // 1. Tarik Data Konteks
-    const [rentals, customers, equipments] = await Promise.all([
-      supabase.from('rental').select('status, customer(nama), rental_detail(qty, equipment(nama_alat))'),
+    // Sekarang kita terima message DAN history dari Frontend
+    const { message, history } = await c.req.json();
+    
+    // 1. Tarik Data Konteks (Tambahin fetch ke tabel 'category'!)
+    const [customers, equipments, categories] = await Promise.all([
       supabase.from('customer').select('nama, no_hp'),
-      supabase.from('equipment').select('nama_alat, harga_sewa')
-    ])
+      supabase.from('equipment').select('nama_alat, harga_sewa'),
+      supabase.from('category').select('*') // Ambil data kategori buat disodorin ke user
+    ]);
 
-    // 2. Prompt "Agentic" (Ngajarin AI bertindak)
+    // 2. Prompt Agentic (Ngajarin AI aturan baru)
     const systemPrompt = `
-      Lu adalah asisten admin pintar untuk RentalApp. Lu bisa baca data dan MENAMBAHKAN data.
+      Lu adalah asisten admin RentalApp. Lu bisa baca dan MENAMBAHKAN data.
       Gunakan bahasa Indonesia santai (lu/gua/bos).
       
       DATA SAAT INI:
       - CUSTOMER: ${JSON.stringify(customers.data)}
       - ALAT: ${JSON.stringify(equipments.data)}
+      - KATEGORI ALAT YANG TERSEDIA: ${JSON.stringify(categories.data)}
 
-      ATURAN PENTING:
-      1. Jika user hanya nanya-nanya biasa, jawab dengan ramah berdasarkan data di atas.
-      2. Jika user minta menambahkan data CUSTOMER atau ALAT, lu harus cek kelengkapannya:
-         - Customer butuh: nama, email, dan no_hp.
-         - Alat butuh: nama_alat, dan harga_sewa (berupa angka).
-      3. Kalau data yang diminta user KURANG LENGKAP, tanyakan bagian yang kurang.
-      4. Kalau datanya SUDAH LENGKAP, lu WAJIB merespon HANYA dengan format JSON murni (tanpa teks apapun di luar JSON) seperti ini:
-         {"action": "add_customer", "nama": "...", "email": "...", "no_hp": "..."}
-         atau
-         {"action": "add_equipment", "nama_alat": "...", "harga_sewa": 0}
-      
-      Pertanyaan user: "${message}"
-    `
+      ATURAN PENTING TAMBAH ALAT:
+      1. Jika user minta tambah ALAT, lu WAJIB mengecek: nama_alat, harga_sewa, dan category_id.
+      2. PENTING: Lu WAJIB sebutkan daftar KATEGORI ALAT yang tersedia ke user, lalu minta user memilih alat ini mau dimasukin ke kategori yang mana!
+      3. Jangan eksekusi JSON kalau user belum milih kategorinya.
 
-    const result = await model.generateContent(systemPrompt)
-    let reply = result.response.text()
+      ATURAN EKSEKUSI (JIKA DATA LENGKAP):
+      Hanya jika SEMUA data sudah lengkap, lu WAJIB membalas HANYA dengan JSON murni (tanpa teks lain):
+      - Untuk Alat: {"action": "add_equipment", "nama_alat": "...", "harga_sewa": 0, "category_id": 1}
+      - Untuk Customer: {"action": "add_customer", "nama": "...", "email": "...", "no_hp": "..."}
+    `;
 
-    // 3. Deteksi apakah AI mengeluarkan "Secret Code" (JSON)
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY as string);
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-2.5-flash",
+      systemInstruction: systemPrompt 
+    });
+
+    // 3. Terjemahkan history dari React ke format ingatan yang dipahami Gemini
+    const geminiHistory = (history || []).map((msg: any) => ({
+      role: msg.sender === 'user' ? 'user' : 'model',
+      parts: [{ text: msg.text }]
+    }));
+
+    // 4. Mulai obrolan dengan menyertakan ingatan (history)
+    const chat = model.startChat({ history: geminiHistory });
+    const result = await chat.sendMessage(message);
+    let reply = result.response.text();
+
+    // 5. Eksekusi jika AI ngeluarin Secret Code JSON
     try {
-      // Cari teks yang diapit kurung kurawal {...}
       const match = reply.match(/\{[\s\S]*\}/);
-
       if (match) {
         const aiCommand = JSON.parse(match[0]);
-
-        // EKSEKUSI: Jika AI nyuruh tambah customer
+        
         if (aiCommand.action === 'add_customer') {
           const { error } = await supabase.from('customer').insert([{
             nama: aiCommand.nama, email: aiCommand.email, no_hp: aiCommand.no_hp
           }]);
-
-          if (!error) {
-            reply = `Siapp bos! Customer baru atas nama **${aiCommand.nama}** (${aiCommand.no_hp}) udah sukses gua daftarin ke database! 🚀`;
-          } else {
-            reply = `Aduh bos, gagal masukin customer nih: ${error.message}`;
-          }
-        }
-
-        // EKSEKUSI: Jika AI nyuruh tambah alat
+          reply = error ? `Gagal masukin customer: ${error.message}` : `Siapp bos! Customer **${aiCommand.nama}** udah sukses didaftarin! 🚀`;
+        } 
         else if (aiCommand.action === 'add_equipment') {
+          // Sekarang kita masukin category_id sesuai pilihan user!
           const { error } = await supabase.from('equipment').insert([{
-            nama_alat: aiCommand.nama_alat, harga_sewa: aiCommand.harga_sewa
+            nama_alat: aiCommand.nama_alat, 
+            harga_sewa: aiCommand.harga_sewa,
+            category_id: aiCommand.category_id 
           }]);
-
-          if (!error) {
-            reply = `Beres bos! Alat **${aiCommand.nama_alat}** dengan harga sewa Rp${aiCommand.harga_sewa.toLocaleString('id-ID')} udah ready di etalase! 📸`;
-          } else {
-            reply = `Waduh gagal nambahin alat nih: ${error.message}`;
-          }
+          reply = error ? `Waduh gagal nambahin alat nih: ${error.message}` : `Beres bos! Alat **${aiCommand.nama_alat}** udah ready di etalase! 📸`;
         }
       }
-    } catch (parseError) {
-      // Jika error nge-parse JSON, berarti AI cuma membalas teks biasa. 
-      // Biarkan variabel 'reply' nampilin teks jawaban AI apa adanya.
-    }
+    } catch (parseError) {}
 
-    return c.json({ success: true, reply })
+    return c.json({ success: true, reply });
   } catch (error: any) {
-    console.error(error)
-    return c.json({ success: false, reply: "Koneksi ke AI lagi putus nih bos." })
+    console.error(error);
+    return c.json({ success: false, reply: "Koneksi ke AI lagi putus nih bos." });
   }
-})
+});
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 8787
 console.log(`Server running at http://localhost:${port}`)
