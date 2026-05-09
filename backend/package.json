@@ -9,10 +9,10 @@
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
     "@hono/node-server": "^1.19.14",
-    "@supabase/supabase-js": "^2.105.1",
+    "@supabase/supabase-js": "^2.105.4",
     "cors": "^2.8.6",
-    "dotenv": "^16.4.3",
-    "hono": "^4.12.16"
+    "dotenv": "^16.6.1",
+    "hono": "^4.12.18"
   },
   "devDependencies": {
     "@types/cors": "^2.8.19",
