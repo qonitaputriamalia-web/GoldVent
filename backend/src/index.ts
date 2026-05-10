@@ -230,17 +230,17 @@ app.delete('/api/equipments/:id', async (c) => {
 // ==========================================
 app.post('/api/chat', async (c) => {
   try {
-    // Sekarang kita terima message DAN history dari Frontend
+    // Tangkap pesan baru dan INGATAN (history) dari frontend
     const { message, history } = await c.req.json();
     
-    // 1. Tarik Data Konteks (Tambahin fetch ke tabel 'category'!)
+    // 1. Tarik Data Konteks dari Database
     const [customers, equipments, categories] = await Promise.all([
       supabase.from('customer').select('nama, no_hp'),
       supabase.from('equipment').select('nama_alat, harga_sewa'),
-      supabase.from('category').select('*') // Ambil data kategori buat disodorin ke user
+      supabase.from('category').select('*')
     ]);
 
-    // 2. Prompt Agentic (Ngajarin AI aturan baru)
+    // 2. Prompt Agentic (Aturan Main AI)
     const systemPrompt = `
       Lu adalah asisten admin RentalApp. Lu bisa baca dan MENAMBAHKAN data.
       Gunakan bahasa Indonesia santai (lu/gua/bos).
@@ -261,24 +261,26 @@ app.post('/api/chat', async (c) => {
       - Untuk Customer: {"action": "add_customer", "nama": "...", "email": "...", "no_hp": "..."}
     `;
 
+    // 3. Siapin Otak AI (WAJIB PAKAI gemini-1.5-flash)
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY as string);
     const model = genAI.getGenerativeModel({ 
-      model: "gemini-2.5-flash",
+      model: "gemini-2.5-flash", 
       systemInstruction: systemPrompt 
     });
 
-    // 3. Terjemahkan history dari React ke format ingatan yang dipahami Gemini
+    // 4. Terjemahkan history dari React ke format ingatan Gemini
+    // (Cukup dikerjakan 1 kali saja di sini)
     const geminiHistory = (history || []).map((msg: any) => ({
       role: msg.sender === 'user' ? 'user' : 'model',
       parts: [{ text: msg.text }]
     }));
 
-    // 4. Mulai obrolan dengan menyertakan ingatan (history)
+    // 5. Mulai obrolan dengan menyuapkan ingatan (history) ke otaknya
     const chat = model.startChat({ history: geminiHistory });
     const result = await chat.sendMessage(message);
     let reply = result.response.text();
 
-    // 5. Eksekusi jika AI ngeluarin Secret Code JSON
+    // 6. Eksekusi jika AI ngeluarin format JSON (Secret Code)
     try {
       const match = reply.match(/\{[\s\S]*\}/);
       if (match) {
@@ -291,7 +293,6 @@ app.post('/api/chat', async (c) => {
           reply = error ? `Gagal masukin customer: ${error.message}` : `Siapp bos! Customer **${aiCommand.nama}** udah sukses didaftarin! 🚀`;
         } 
         else if (aiCommand.action === 'add_equipment') {
-          // Sekarang kita masukin category_id sesuai pilihan user!
           const { error } = await supabase.from('equipment').insert([{
             nama_alat: aiCommand.nama_alat, 
             harga_sewa: aiCommand.harga_sewa,
@@ -300,12 +301,156 @@ app.post('/api/chat', async (c) => {
           reply = error ? `Waduh gagal nambahin alat nih: ${error.message}` : `Beres bos! Alat **${aiCommand.nama_alat}** udah ready di etalase! 📸`;
         }
       }
-    } catch (parseError) {}
+    } catch (parseError) {
+      // Abaikan kalau gagal parse JSON, berarti AI cuma ngajak ngobrol
+    }
 
     return c.json({ success: true, reply });
   } catch (error: any) {
-    console.error(error);
-    return c.json({ success: false, reply: "Koneksi ke AI lagi putus nih bos." });
+    console.error("AI Error:", error);
+    return c.json({ success: false, reply: "Koneksi ke AI lagi putus nih bos." }, 500);
+  }
+});
+
+// ==========================================
+// ENDPOINT LOGIN ADMIN
+// ==========================================
+app.post('/api/login', async (c) => {
+  try {
+    const { email, password } = await c.req.json();
+
+    const { data, error } = await supabase
+      .from('admin_users')
+      .select('*')
+      .eq('email', email)
+      .eq('password', password)
+      .single(); 
+
+    if (error || !data) {
+      return c.json({ success: false, message: 'Email atau Password salah bos!' }, 401);
+    }
+
+    return c.json({ success: true, message: 'Login sukses!' });
+  } catch (error: any) {
+    return c.json({ success: false, message: 'Server lagi error nih.' }, 500);
+  }
+});
+
+// ==========================================
+// ENDPOINT: SIGN UP (DAFTAR ADMIN BARU)
+// ==========================================
+app.post('/api/signup', async (c) => {
+  try {
+    const { email, password } = await c.req.json();
+
+    // Insert data ke tabel admin_users
+    const { data, error } = await supabase
+      .from('admin_users')
+      .insert([{ email, password }]);
+
+    if (error) {
+      // Error code 23505 artinya melanggar constraint UNIQUE (email udah dipakai)
+      if (error.code === '23505') {
+        return c.json({ success: false, message: 'Waduh, Email ini udah terdaftar bos!' }, 400);
+      }
+      throw error;
+    }
+
+    return c.json({ success: true, message: 'Akun berhasil dibuat! Silakan login.' });
+  } catch (error: any) {
+    return c.json({ success: false, message: 'Gagal bikin akun: ' + error.message }, 500);
+  }
+});
+
+// ==========================================
+// ENDPOINT DASHBOARD STATISTIK (REAL DATA)
+// ==========================================
+app.get('/api/dashboard', async (c) => {
+  try {
+    // 1. Tarik Jumlah Customer & Alat (Hitung Totalnya aja)
+    const { count: totalCustomer } = await supabase.from('customer').select('*', { count: 'exact', head: true });
+    const { count: totalAlat } = await supabase.from('equipment').select('*', { count: 'exact', head: true });
+
+    // 2. Tarik Data Transaksi (Buat Pie Chart Status & Penyewaan Aktif)
+    const { data: rentals } = await supabase.from('rental').select('status');
+    let activeRentals = 0;
+    let statusCount = { 'Selesai': 0, 'Dipinjam': 0, 'Dibatalkan': 0 };
+    
+    rentals?.forEach(r => {
+      if (r.status === 'dipinjam') { activeRentals++; statusCount['Dipinjam']++; }
+      else if (r.status === 'selesai') statusCount['Selesai']++;
+      else if (r.status === 'dibatalkan') statusCount['Dibatalkan']++;
+    });
+
+    // 3. Hitung Pendapatan Sewa & Denda (Buat Line Chart Bulanan)
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Ags', 'Sep', 'Okt', 'Nov', 'Des'];
+    let trendPendapatan = monthNames.map(m => ({ bulan: m, sewa: 0, denda: 0 }));
+    let totalPendapatan = 0;
+
+    // Ambil uang sewa
+    const { data: payments } = await supabase.from('payment').select('jumlah, created_at, status');
+    payments?.forEach(p => {
+      if (p.status === 'lunas') {
+        totalPendapatan += Number(p.jumlah);
+        const monthIdx = new Date(p.created_at).getMonth();
+        trendPendapatan[monthIdx].sewa += Number(p.jumlah);
+      }
+    });
+
+    // Ambil uang denda
+    const { data: returns } = await supabase.from('returns').select('denda, tanggal_kembali');
+    returns?.forEach(r => {
+      if (r.denda && Number(r.denda) > 0) {
+        // Karena ada denda, masukin ke total pendapatan juga
+        totalPendapatan += Number(r.denda); 
+        const monthIdx = new Date(r.tanggal_kembali).getMonth();
+        trendPendapatan[monthIdx].denda += Number(r.denda);
+      }
+    });
+
+    // 4. Hitung Alat Paling Sering Disewa (Buat Bar Chart)
+    const { data: rentalDetails } = await supabase.from('rental_detail').select(`
+      qty,
+      equipment ( category ( nama_kategori ) )
+    `);
+
+    const categoryCount: Record<string, number> = {};
+    rentalDetails?.forEach(rd => {
+      // Supabase join response bisa berbentuk array atau object, kita amankan:
+      const eq = Array.isArray(rd.equipment) ? rd.equipment[0] : rd.equipment;
+      const cat = Array.isArray(eq?.category) ? eq?.category[0] : eq?.category;
+      const catName = cat?.nama_kategori || 'Lainnya';
+      
+      categoryCount[catName] = (categoryCount[catName] || 0) + rd.qty;
+    });
+    
+    let kategoriFavorit = Object.keys(categoryCount).map(k => ({ name: k, total_sewa: categoryCount[k] }));
+    // Kalau database masih kosong melompong, kasih data pancingan biar chart ga error
+    if (kategoriFavorit.length === 0) kategoriFavorit = [{ name: 'Belum ada data', total_sewa: 0 }];
+
+    // Kirim semua hasil masakan ke Frontend
+    return c.json({
+      success: true,
+      data: {
+        summary: {
+          totalPendapatan,
+          activeRentals,
+          totalCustomer: totalCustomer || 0,
+          totalAlat: totalAlat || 0
+        },
+        trendPendapatan,
+        kategoriFavorit,
+        statusSewa: [
+          { name: 'Selesai', value: statusCount['Selesai'] },
+          { name: 'Dipinjam', value: statusCount['Dipinjam'] },
+          { name: 'Dibatalkan', value: statusCount['Dibatalkan'] }
+        ]
+      }
+    });
+
+  } catch (error: any) {
+    console.error("Dashboard Error:", error);
+    return c.json({ success: false, message: "Gagal narik data dashboard" }, 500);
   }
 });
 
