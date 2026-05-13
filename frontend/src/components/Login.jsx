@@ -70,7 +70,7 @@ export default function Login({ onLoginSuccess, onSwitchToSignUp }) {
                             <IconHeader size={32} />
                         </div>
                         <h1 className="text-2xl font-bold text-slate-800">
-                            {isAnalyst ? 'Portal Data Analyst' : 'Portal Admin CRUD'}
+                            {isAnalyst ? 'Portal Data Analyst' : 'GoldVenture'}
                         </h1>
                         <p className="text-slate-500 text-sm text-center mt-1">
                             {isAnalyst ? 'Akses dashboard statistik dan grafik' : 'Kelola data master dan transaksi'}

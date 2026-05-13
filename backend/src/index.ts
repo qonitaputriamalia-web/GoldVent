@@ -242,7 +242,7 @@ app.post('/api/chat', async (c) => {
 
     // 2. Prompt Agentic (Aturan Main AI)
     const systemPrompt = `
-      Lu adalah asisten admin RentalApp. Lu bisa baca dan MENAMBAHKAN data.
+      Lu adalah asisten admin GoldVenture. Lu bisa baca dan MENAMBAHKAN data.
       Gunakan bahasa Indonesia santai (lu/gua/bos).
       
       DATA SAAT INI:
@@ -452,6 +452,54 @@ app.get('/api/dashboard', async (c) => {
     console.error("Dashboard Error:", error);
     return c.json({ success: false, message: "Gagal narik data dashboard" }, 500);
   }
+});
+
+// ==========================================
+// AUTO-CRUD ENGINE (Satu untuk Semua)
+// ==========================================
+
+// 1. GET ALL DATA
+app.get('/api/crud/:table', async (c) => {
+  const table = c.req.param('table');
+  const { data, error } = await supabase.from(table).select('*').order('id', { ascending: false });
+  if (error) return c.json({ success: false, message: error.message }, 500);
+  return c.json({ success: true, data });
+});
+
+// 2. CREATE DATA
+app.post('/api/crud/:table', async (c) => {
+  const table = c.req.param('table');
+  const body = await c.req.json();
+  const { data, error } = await supabase.from(table).insert([body]).select();
+  if (error) return c.json({ success: false, message: error.message }, 400);
+  return c.json({ success: true, data });
+});
+
+// 3. UPDATE DATA
+app.put('/api/crud/:table/:id', async (c) => {
+  const { table, id } = c.req.param();
+  const body = await c.req.json();
+  // Karena beberapa tabel lu pake PK selain 'id' (misal category_id), 
+  // kita deteksi PK-nya lewat logika sederhana atau samakan di DB.
+  const primaryKey = table === 'category' ? 'category_id' : 
+                     table === 'customer' ? 'customer_id' : 
+                     table === 'equipment' ? 'equipment_id' : 'id';
+
+  const { data, error } = await supabase.from(table).update(body).eq(primaryKey, id).select();
+  if (error) return c.json({ success: false, message: error.message }, 400);
+  return c.json({ success: true, data });
+});
+
+// 4. DELETE DATA
+app.delete('/api/crud/:table/:id', async (c) => {
+  const { table, id } = c.req.param();
+  const primaryKey = table === 'category' ? 'category_id' : 
+                     table === 'customer' ? 'customer_id' : 
+                     table === 'equipment' ? 'equipment_id' : 'id';
+
+  const { error } = await supabase.from(table).delete().eq(primaryKey, id);
+  if (error) return c.json({ success: false, message: error.message }, 400);
+  return c.json({ success: true });
 });
 
 const port = process.env.PORT ? parseInt(process.env.PORT) : 8787

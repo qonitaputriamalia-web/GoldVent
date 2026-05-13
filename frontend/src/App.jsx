@@ -1,8 +1,6 @@
 import { useState } from 'react';
 import Login from './components/Login';
 import Chatbot from './components/Chatbot';
-
-// Nanti lu tinggal bikin/import file komponennya satu-satu
 import DashboardStats from './components/DashboardStats';
 import MasterCustomer from './components/MasterCustomer';
 import SignUp from './components/SignUp';
@@ -16,7 +14,7 @@ import MasterEquipment from './components/MasterEquipment';
 
 import {
   Users, Package, Tags, Contact, Truck,
-  ShoppingCart, CreditCard, RotateCcw, LogOut, FolderKanban, BarChart3
+  ShoppingCart, CreditCard, RotateCcw, LogOut, Mountain, BarChart3
 } from 'lucide-react';
 
 function App() {
@@ -69,12 +67,12 @@ function App() {
           <div className="flex items-center gap-3">
             <BarChart3 className="text-blue-500" size={28} />
             <div>
-              <h1 className="text-xl font-bold">Rental Analyst Dashboard</h1>
+              <h1 className="text-xl font-bold"> GoldVenture Analyst Dashboard</h1>
               <p className="text-xs text-slate-400">Pusat Pantauan Data & Statistik</p>
             </div>
           </div>
           <button onClick={handleLogout} className="flex items-center gap-2 bg-slate-800 hover:bg-red-500/20 text-red-400 hover:text-red-300 px-4 py-2 rounded-lg transition-colors text-sm font-medium">
-            <LogOut size={18} /> Keluar Sistem
+            <LogOut size={18} /> Keluar
           </button>
         </header>
 
@@ -105,7 +103,7 @@ function App() {
       default:
         return (
           <div className="flex flex-col items-center justify-center h-96 text-slate-400">
-            <FolderKanban size={48} className="mb-4 opacity-50" />
+            <Mountain size={48} className="mb-4 opacity-50" />
             <h3 className="text-xl font-medium">Halaman {activeTab} Belum Dibuat</h3>
             <p>Silakan buat komponen React-nya terlebih dahulu bos!</p>
           </div>
@@ -115,12 +113,14 @@ function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 overflow-hidden font-sans">
-
       {/* --- SIDEBAR MENU --- */}
-      <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col z-10 overflow-y-auto custom-scrollbar">
-        <div className="p-6 border-b border-slate-800 sticky top-0 bg-slate-900 z-20">
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <FolderKanban className="text-blue-500" size={24} /> RentalERP
+      <aside className="w-64 bg-purple-950 text-slate-300 flex flex-col z-10 overflow-y-auto custom-scrollbar">
+        <div className="p-6 border-b border-purple-800 sticky top-0 bg-purple-950 z-20">
+          <h1 className="text-xl font-bold text-white flex items-center gap-3">
+            <span className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black text-white shadow-lg shadow-black/20">
+              <Mountain size={20} />
+            </span>
+            GoldVenture
           </h1>
           <p className="text-xs text-slate-400 mt-1">Sistem Manajemen Data</p>
         </div>
@@ -153,7 +153,7 @@ function App() {
         {/* --- TOMBOL LOGOUT --- */}
         <div className="p-4 border-t border-slate-800 sticky bottom-0 bg-slate-900">
           <button onClick={handleLogout} className="flex items-center gap-3 w-full px-4 py-3 text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded-lg transition-colors text-sm font-medium">
-            <LogOut size={18} /> Keluar Sistem
+            <LogOut size={18} /> Keluar 
           </button>
         </div>
       </aside>
@@ -185,7 +185,7 @@ function MenuButton({ icon, label, isActive, onClick }) {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+      className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive ? 'bg-purple-600 text-white shadow-md' : 'text-slate-400 hover:bg-purple-800 hover:text-white'
         }`}
     >
       {icon} {label}
